@@ -29,4 +29,4 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_DOMAIN: "Sacumentech432.onmicrosoft.com"
-        run: python generate_azure_data.py
+        run: python Generate-AzureActivityLogs.py

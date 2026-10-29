@@ -4,7 +4,8 @@ import time
 import csv
 from datetime import datetime, timezone
 from azure.identity import DefaultAzureCredential
-from azure.mgmt.resource import ResourceManagementClient
+# Fixed Import Path
+from azure.mgmt.resource.resources import ResourceManagementClient
 from azure.mgmt.monitor import MonitorManagementClient
 
 # ============================================================
@@ -15,7 +16,7 @@ RESOURCE_GROUP_NAME = os.environ.get("AZURE_RESOURCE_GROUP", "ActivityLog-Test-R
 TAG_NAME = "Validation"
 UPDATES_TO_GENERATE = 10
 
-# Create output folder inside workspace
+# Output folder setup inside repository
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -23,7 +24,7 @@ run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 csv_path = os.path.join(OUTPUT_DIR, f"AzureActivityLogs_{run_id}.csv")
 
 def main():
-    print("[+] Initializing Azure Azure SDK Clients...")
+    print("[+] Initializing Azure SDK Clients...")
     credential = DefaultAzureCredential()
     
     resource_client = ResourceManagementClient(credential, SUBSCRIPTION_ID)
@@ -32,13 +33,12 @@ def main():
     resource_id = f"/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/{RESOURCE_GROUP_NAME}"
     run_start_utc = datetime.now(timezone.utc)
 
-    print(f"[+] Generating {UPDATES_TO_GENERATE} tag update events on resource group '{RESOURCE_GROUP_NAME}'...")
+    print(f"[+] Generating {UPDATES_TO_GENERATE} tag updates on '{RESOURCE_GROUP_NAME}'...")
 
-    # 1. Generate Activity Events by updating tags
+    # 1. Update Tags on Resource Group to Trigger Activity Logs
     for i in range(1, UPDATES_TO_GENERATE + 1):
         tag_value = f"Validation-{run_id}-{i}"
         
-        # Patch tag on Resource Group
         resource_client.tags.create_or_update_at_scope(
             scope=resource_id,
             parameters={
@@ -50,12 +50,12 @@ def main():
         print(f"  SUCCESS: Tag update {i}/{UPDATES_TO_GENERATE} applied.")
         time.sleep(2)
 
-    # 2. Wait for Azure Activity Log ingestion
-    print("[+] Waiting 25 seconds for Azure Activity Logs to propagate...")
+    # 2. Wait for Azure Activity Log propagation
+    print("[+] Waiting 25 seconds for Azure Activity Logs to update...")
     time.sleep(25)
 
     # 3. Query Activity Logs
-    print("[+] Fetching Activity Logs from Azure Monitor...")
+    print("[+] Fetching Activity Logs...")
     filter_query = f"eventTimestamp ge '{run_start_utc.isoformat()}' and resourceGroupName eq '{RESOURCE_GROUP_NAME}'"
     
     logs = monitor_client.activity_logs.list(filter=filter_query)
@@ -80,9 +80,9 @@ def main():
             writer.writeheader()
             writer.writerows(exported_rows)
             
-        print(f"[+] SUCCESS: Saved {len(exported_rows)} activity log records to '{csv_path}'")
+        print(f"[+] SUCCESS: Exported {len(exported_rows)} activity log records to '{csv_path}'")
     else:
-        print("[-] WARNING: No activity logs returned during the query window.")
+        print("[-] WARNING: No activity logs retrieved in this window.")
 
 if __name__ == "__main__":
     main()

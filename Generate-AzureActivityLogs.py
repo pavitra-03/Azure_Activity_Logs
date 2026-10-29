@@ -2,7 +2,7 @@ import os
 import json
 import time
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource.resources import ResourceManagementClient
 from azure.mgmt.monitor import MonitorManagementClient
@@ -38,7 +38,6 @@ def main():
     for i in range(1, UPDATES_TO_GENERATE + 1):
         tag_value = f"Validation-{run_id}-{i}"
         
-        # Fixed for modern Azure SDK LRO (Long Running Operation)
         poller = resource_client.tags.begin_create_or_update_at_scope(
             scope=resource_id,
             parameters={
@@ -47,34 +46,63 @@ def main():
                 }
             }
         )
-        poller.result()  # Wait for operation to complete
-        
+        poller.result()
         print(f"  SUCCESS: Tag update {i}/{UPDATES_TO_GENERATE} applied.")
         time.sleep(2)
 
-    # 2. Wait for Azure Activity Log propagation
-    print("[+] Waiting 25 seconds for Azure Activity Logs to propagate...")
-    time.sleep(25)
+    # 2. Wait and Poll for Azure Activity Log Propagation
+    print("[+] Waiting for Azure Activity Logs to propagate...")
+    time.sleep(30)
 
-    # 3. Query Activity Logs
-    print("[+] Fetching Activity Logs...")
-    filter_query = f"eventTimestamp ge '{run_start_utc.isoformat()}' and resourceGroupName eq '{RESOURCE_GROUP_NAME}'"
-    
-    logs = monitor_client.activity_logs.list(filter=filter_query)
+    # Buffer start time by -2 minutes to handle minor cloud clock skews
+    query_start = (run_start_utc - timedelta(minutes=2)).isoformat()
+    filter_query = f"eventTimestamp ge '{query_start}' and resourceGroupName eq '{RESOURCE_GROUP_NAME}'"
 
     exported_rows = []
-    for event in logs:
-        exported_rows.append({
-            "EventTimestampUtc": event.event_timestamp.isoformat() if event.event_timestamp else "",
-            "Operation": event.operation_name.value if event.operation_name else "",
-            "Status": event.status.value if event.status else "",
-            "Caller": event.caller if event.caller else "",
-            "ResourceGroupName": event.resource_group_name if event.resource_group_name else "",
-            "ResourceId": event.resource_id if event.resource_id else "",
-            "CorrelationId": event.correlation_id if event.correlation_id else ""
-        })
+    
+    # Retry polling up to 8 times (2 minutes total polling window)
+    for attempt in range(1, 9):
+        print(f"[+] Querying Azure Monitor Activity Logs (Attempt {attempt}/8)...")
+        logs = list(monitor_client.activity_logs.list(filter=filter_query))
+        
+        # Filter events created after script execution began
+        matching_events = [
+            e for e in logs 
+            if e.event_timestamp and e.event_timestamp >= run_start_utc - timedelta(seconds=10)
+        ]
 
-    # 4. Save to CSV
+        if len(matching_events) >= UPDATES_TO_GENERATE:
+            print(f"[+] SUCCESS: Retrieved {len(matching_events)} activity log events!")
+            for event in matching_events:
+                exported_rows.append({
+                    "EventTimestampUtc": event.event_timestamp.isoformat() if event.event_timestamp else "",
+                    "Operation": event.operation_name.value if event.operation_name else "",
+                    "Status": event.status.value if event.status else "",
+                    "Caller": event.caller if event.caller else "",
+                    "ResourceGroupName": event.resource_group_name if event.resource_group_name else "",
+                    "ResourceId": event.resource_id if event.resource_id else "",
+                    "CorrelationId": event.correlation_id if event.correlation_id else ""
+                })
+            break
+        
+        print(f"    Only {len(matching_events)} events propagated so far. Waiting 15 seconds...")
+        time.sleep(15)
+
+    # Fallback: Export whatever logs were captured if full set didn't arrive in time
+    if not exported_rows and 'logs' in locals() and logs:
+        print("[-] Fallback: Exporting recent resource group logs.")
+        for event in logs:
+            exported_rows.append({
+                "EventTimestampUtc": event.event_timestamp.isoformat() if event.event_timestamp else "",
+                "Operation": event.operation_name.value if event.operation_name else "",
+                "Status": event.status.value if event.status else "",
+                "Caller": event.caller if event.caller else "",
+                "ResourceGroupName": event.resource_group_name if event.resource_group_name else "",
+                "ResourceId": event.resource_id if event.resource_id else "",
+                "CorrelationId": event.correlation_id if event.correlation_id else ""
+            })
+
+    # 3. Save to CSV
     if exported_rows:
         headers = list(exported_rows[0].keys())
         with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
@@ -82,9 +110,9 @@ def main():
             writer.writeheader()
             writer.writerows(exported_rows)
             
-        print(f"[+] SUCCESS: Exported {len(exported_rows)} activity log records to '{csv_path}'")
+        print(f"[+] SUCCESS: Saved {len(exported_rows)} activity log records to '{csv_path}'")
     else:
-        print("[-] WARNING: No activity logs retrieved in this window.")
+        print("[-] WARNING: No activity logs returned during the query window.")
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-name: Microsoft Entra ID Data Generator
+name: Python Azure Activity Log Pipeline
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:      # Manual trigger button in GitHub UI
 
 jobs:
-  run-generator:
+  generate-azure-activity-logs:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,15 +18,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python Dependencies
+      - name: Install Azure SDK Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install azure-identity azure-mgmt-resource azure-mgmt-monitor
 
-      - name: Run Azure Data Generator
+      - name: Run Activity Log Generator Script
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_DOMAIN: "Sacumentech432.onmicrosoft.com"
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: "17654be6-a05c-4586-a5d9-e86cee340a80"
+          AZURE_RESOURCE_GROUP: "ActivityLog-Test-RG"
         run: python Generate-AzureActivityLogs.py
+
+      - name: Upload CSV Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: azure-activity-logs-${{ github.run_id }}
+          path: output/*.csv
+          retention-days: 14

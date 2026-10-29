@@ -4,7 +4,6 @@ import time
 import csv
 from datetime import datetime, timezone
 from azure.identity import DefaultAzureCredential
-# Fixed Import Path
 from azure.mgmt.resource.resources import ResourceManagementClient
 from azure.mgmt.monitor import MonitorManagementClient
 
@@ -39,7 +38,8 @@ def main():
     for i in range(1, UPDATES_TO_GENERATE + 1):
         tag_value = f"Validation-{run_id}-{i}"
         
-        resource_client.tags.create_or_update_at_scope(
+        # Fixed for modern Azure SDK LRO (Long Running Operation)
+        poller = resource_client.tags.begin_create_or_update_at_scope(
             scope=resource_id,
             parameters={
                 "properties": {
@@ -47,11 +47,13 @@ def main():
                 }
             }
         )
+        poller.result()  # Wait for operation to complete
+        
         print(f"  SUCCESS: Tag update {i}/{UPDATES_TO_GENERATE} applied.")
         time.sleep(2)
 
     # 2. Wait for Azure Activity Log propagation
-    print("[+] Waiting 25 seconds for Azure Activity Logs to update...")
+    print("[+] Waiting 25 seconds for Azure Activity Logs to propagate...")
     time.sleep(25)
 
     # 3. Query Activity Logs

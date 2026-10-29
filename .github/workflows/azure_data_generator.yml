@@ -1,16 +1,16 @@
-name: Python Azure Activity Log Pipeline
+name: Azure Activity Log Generator Pipeline
 
 on:
   schedule:
     - cron: '0 0 * * *'  # Runs daily at midnight UTC
-  workflow_dispatch:      # Manual trigger button in GitHub UI
+  workflow_dispatch:      # Allows manual trigger button in GitHub UI
 
 jobs:
-  generate-azure-activity-logs:
+  generate-logs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository Code
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -23,16 +23,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install azure-identity azure-mgmt-resource azure-mgmt-monitor
 
-      - name: Run Activity Log Generator Script
+      - name: Run Activity Log Generator
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: "17654be6-a05c-4586-a5d9-e86cee340a80"
           AZURE_RESOURCE_GROUP: "ActivityLog-Test-RG"
-        run: python Generate-AzureActivityLogs.py
+        run: |
+          python Generate-AzureActivityLogs.py
 
-      - name: Upload CSV Artifact
+      - name: Upload Generated CSV Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
